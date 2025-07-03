@@ -1,0 +1,88 @@
+[build-system]
+requires = ["hatchling>=1.0.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hatch-build-time-vendoring"
+version = "1.0.0"
+description = "Hatch plugin for vendoring dependencies during build time only"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+keywords = ["hatch", "plugin", "vendoring", "build"]
+authors = [
+    {name = "ashb", email = "ash@ashb.dev"}
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
+dependencies = [
+    "hatchling>=1.0.0",
+    "vendoring>=1.0.0",
+    "tomli;python_version<'3.11'",
+]
+
+[dependency-groups]
+test = [
+    "build",
+    "pytest>=7.0.0",
+]
+lint = [
+    "ruff>=0.12.1",
+    "pre-commit-uv>=4.1.4",
+]
+
+[project.urls]
+Documentation = "https://github.com/ashb/hatch-build-time-vendoring#readme"
+Issues = "https://github.com/ashb/hatch-build-time-vendoring/issues"
+Source = "https://github.com/ashb/hatch-build-time-vendoring"
+
+[project.entry-points.hatch]
+vendoring = "hatch_build_time_vendoring.hooks"
+
+[tool.hatch.build]
+packages = ["src/hatch_build_time_vendoring"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 130
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
+    "RUF", # Ruff-specific rules
+]
+ignore = [
+    # Allow non-abstract empty methods in abstract base classes
+    "B027",
+    # Allow boolean positional values in function calls, like `dict.get(x, False)`
+    "FBT003",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hatch_build_time_vendoring"]
+
+
+[tool.pypi.ini_options]
+
+addopts = [
+    "--tb=short",
+]
