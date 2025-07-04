@@ -18,8 +18,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fixup running locally via act
+        run: apt-get update
+        if: github.actor == 'nektos/act'
+
       - uses: hynek/build-and-inspect-python-package@c52c3a4710070b50470d903818a7b25115dcd076 # v2.13.0
         id: baipp
+      - name: Breakpoint if tests failed
+        if: failure()
+        uses: namespacelabs/breakpoint-action@v0
+        with:
+          # 2m to jump in and extend via running `breakpoint extend`
+          duration: 2m
+          authorized-users: ashb
 
     outputs:
       # Used to define the matrix for tests below. The value is based on
