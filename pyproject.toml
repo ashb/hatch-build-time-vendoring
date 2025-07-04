@@ -48,8 +48,6 @@ Source = "https://github.com/ashb/hatch-build-time-vendoring"
 [project.entry-points.hatch]
 vendoring = "hatch_build_time_vendoring.hooks"
 
-[tool.hatch.build]
-packages = ["src/hatch_build_time_vendoring"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

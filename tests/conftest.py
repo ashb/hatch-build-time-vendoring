@@ -4,38 +4,37 @@ import sys
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner as __CliRunner
 
 
-class CliRunner(__CliRunner):
-    def __init__(self, command):
-        super().__init__()
-        self._command = command
-
-    def __call__(self, *args, **kwargs):
-        # Exceptions should always be handled
-        kwargs.setdefault("catch_exceptions", False)
-
-        return self.invoke(self._command, args, **kwargs)
+def pytest_addoption(parser: pytest.Parser):
+    """Add options parser for custom plugins."""
+    parser.addoption(
+        "--with-prebuilt-wheel",
+        dest="wheel_path",
+        help="Forces database initialization before tests, if false it a DB reset still may occur.",
+    )
 
 
 @pytest.fixture(scope="session")
-def plugin_dir(tmp_path_factory, request):
+def plugin_uri(tmp_path_factory, request):
+    if wheel := request.config.getoption("wheel_path", default=None):
+        return Path(wheel).resolve().as_uri()
+
     directory = tmp_path_factory.mktemp("plugin")
     shutil.copytree(request.config.rootpath, directory, dirs_exist_ok=True)
 
-    return directory.resolve()
+    return directory.resolve().as_uri()
 
 
 @pytest.fixture
-def project_dir(tmp_path_factory, plugin_dir, monkeypatch):
+def project_dir(tmp_path_factory, plugin_uri, monkeypatch):
     """Create a temporary project directory for testing."""
 
     tmpdir = tmp_path_factory.mktemp("my-app")
     monkeypatch.chdir(tmpdir)
 
     # Create project structure
-    create_project_structure(tmpdir, plugin_dir)
+    create_project_structure(tmpdir, plugin_uri)
 
     # Initialize git repository
     subprocess.run(["git", "init"], check=True, capture_output=True)
@@ -47,7 +46,7 @@ def project_dir(tmp_path_factory, plugin_dir, monkeypatch):
     yield tmpdir
 
 
-def create_project_structure(project_dir, plugin_dir):
+def create_project_structure(project_dir, plugin_uri):
     """Create a basic project structure for testing."""
     # Create directories
     src_dir = Path(project_dir) / "src" / "my_app"
@@ -56,7 +55,7 @@ def create_project_structure(project_dir, plugin_dir):
     # Create pyproject.toml
     pyproject_content = f"""
 [build-system]
-requires = ["hatchling", "hatch-build-time-vendoring @ {plugin_dir.as_uri()}"]
+requires = ["hatchling", "hatch-build-time-vendoring @ {plugin_uri}"]
 build-backend = "hatchling.build"
 
 [project]
