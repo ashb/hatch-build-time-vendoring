@@ -15,6 +15,8 @@ from typing import Any
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 
+from .git import FileStatus, filter_by_status, get_filepaths, get_modified_and_untracked_files
+
 
 class VendoringBuildHook(BuildHookInterface):
     """Build hook that vendors dependencies during the build process."""
@@ -23,6 +25,7 @@ class VendoringBuildHook(BuildHookInterface):
 
     vendor_path: Path | None = None
     vendor_dir: str | None
+    protected_files: list[str]
 
     def __init__(self, root: str, config: dict[str, Any], *args, **kwargs) -> None:
         super().__init__(root, config, *args, **kwargs)
@@ -67,9 +70,14 @@ class VendoringBuildHook(BuildHookInterface):
             self.vendor_dir = pyproject.get("tool", {}).get("vendoring", {}).get("destination")
 
             if self.vendor_dir:
+                self.protected_files = [
+                    Path(self.vendor_dir, file).as_posix()
+                    for file in pyproject.get("tool", {}).get("vendoring", {}).get("protected-files", [])
+                ]
                 self.vendor_path = Path(self.root) / self.vendor_dir
                 self.app.display_info(f"Determined vendor directory: {self.vendor_path}")
             else:
+                self.protected_files = []
                 self.app.display_warning("Could not determine vendor directory from vendoring config")
                 self.app.display_warning("Vendored files will not be cleaned up after build")
         except Exception as e:
@@ -186,25 +194,13 @@ class VendoringBuildHook(BuildHookInterface):
             return untracked_files, modified_files
 
         try:
-            # Get untracked files in vendor directory
-            cmd = ["git", "ls-files", "--others", "--exclude-standard", self.vendor_dir]
-            result = subprocess.run(cmd, cwd=self.root, check=True, capture_output=True, text=True)
-            if result.stdout:
-                untracked_files = [line.strip() for line in result.stdout.splitlines()]
+            files = get_modified_and_untracked_files(self.vendor_path)
+            modified_files = get_filepaths(filter_by_status(files, FileStatus.MODIFIED))
+            untracked_files = get_filepaths(filter_by_status(files, FileStatus.UNTRACKED))
 
-            # Get modified files in vendor directory
-            cmd = ["git", "diff", "--name-only", "--", self.vendor_dir]
-            result = subprocess.run(cmd, cwd=self.root, check=True, capture_output=True, text=True)
-            if result.stdout:
-                modified_files = [line.strip() for line in result.stdout.splitlines()]
-
-            # Get staged files in vendor directory
-            cmd = ["git", "diff", "--name-only", "--cached", "--", self.vendor_dir]
-            result = subprocess.run(cmd, cwd=self.root, check=True, capture_output=True, text=True)
-            if result.stdout:
-                modified_files.extend([line.strip() for line in result.stdout.splitlines()])
-
-        except subprocess.SubprocessError:
+            modified_files = [file for file in modified_files if file not in self.protected_files]
+            untracked_files = [file for file in untracked_files if file not in self.protected_files]
+        except RuntimeError:
             self.app.display_warning("Could not check for uncommitted changes in vendor directory")
 
         return untracked_files, modified_files

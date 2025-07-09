@@ -17,7 +17,7 @@ def get_plugin_path():
     return str(Path(__file__).parent.parent.absolute())
 
 
-def test_build_with_vendoring(project_dir):
+def test_build_with_vendoring(project_dir: Path):
     """
     Test building a package with the vendoring plugin.
 
@@ -53,7 +53,8 @@ def test_build_with_vendoring(project_dir):
 
     # Verify the vendor directory was cleaned up from source
     vendor_dir = project_dir / "src" / "my_app" / "_vendor"
-    assert not vendor_dir.exists(), "Vendor directory not cleaned up"
+    children = [f.name for f in vendor_dir.glob("*")]
+    assert children == [".gitignore"]
 
     # Verify git status is clean
     git_status = subprocess.run(
@@ -67,13 +68,40 @@ def test_build_with_vendoring(project_dir):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="Git not available")
+def test_build_with_unstaged_changes(project_dir):
+    """
+    Test that build fails when there are uncommitted changes in vendor directory.
+    """
+    vendor_dir = project_dir / "src" / "my_app" / "_vendor"
+
+    (vendor_dir / "test_file.py").write_text("# Test file\n")
+
+    # Build should fail due to uncommitted changes
+    with pytest.raises(Exception, match="Uncommitted changes") as cx:
+        build_project()
+
+    cx.match(r"- src/my_app/_vendor/test_file.py\n")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="Git not available")
+def test_build_ok_with_protected_changes(project_dir):
+    """
+    Test that build fails when there are uncommitted changes in vendor directory.
+    """
+    vendor_dir = project_dir / "src" / "my_app" / "_vendor"
+
+    (vendor_dir / "__init__.py").write_text("# Test file\n")
+
+    # Build not should fail
+    build_project()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="Git not available")
 def test_build_with_uncommitted_changes(project_dir):
     """
     Test that build fails when there are uncommitted changes in vendor directory.
     """
-    # Create vendor directory with a file to simulate previous vendoring
     vendor_dir = project_dir / "src" / "my_app" / "_vendor"
-    vendor_dir.mkdir(parents=True, exist_ok=True)
 
     (vendor_dir / "test_file.py").write_text("# Test file\n")
 
@@ -91,22 +119,13 @@ def test_build_with_allow_uncommitted_changes(project_dir):
     pyproject_path = project_dir / "pyproject.toml"
     content = pyproject_path.read_text()
 
-    # Add abort-on-changed-files = false
+    # Set abort-on-changed-files = false
     content = content.replace(
         "[tool.hatch.build.hooks.vendoring]",
         "[tool.hatch.build.hooks.vendoring]\nabort-on-changed-files = false",
     )
 
     pyproject_path.write_text(content)
-
-    # Commit the updated pyproject.toml
-    subprocess.run(["git", "add", "pyproject.toml"], check=True, capture_output=True, cwd=project_dir)
-    subprocess.run(
-        ["git", "commit", "-m", "Allow uncommitted changes"],
-        check=True,
-        capture_output=True,
-        cwd=project_dir,
-    )
 
     # Create vendor directory with a file to simulate previous vendoring
     vendor_dir = project_dir / "src" / "my_app" / "_vendor"
@@ -122,4 +141,5 @@ def test_build_with_allow_uncommitted_changes(project_dir):
     assert dist_dir.exists(), "dist directory not created"
 
     # Verify the vendor directory was cleaned up from source
-    assert not vendor_dir.exists(), "Vendor directory not cleaned up"
+    children = [f.name for f in vendor_dir.glob("*")]
+    assert children == [".gitignore"]
