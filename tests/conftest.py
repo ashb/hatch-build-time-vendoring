@@ -11,7 +11,7 @@ def pytest_addoption(parser: pytest.Parser):
     parser.addoption(
         "--with-prebuilt-wheel",
         dest="wheel_path",
-        help="Forces database initialization before tests, if false it a DB reset still may occur.",
+        help="Runs integration tests with a pre-compiled wheel file, not the repo checkout",
     )
 
 
@@ -76,6 +76,8 @@ destination = "src/my_app/_vendor"
 requirements = "vendor-requirements.txt"
 namespace = "my_app._vendor"
 
+protected-files = ["__init__.py"]
+
 [tool.vendoring.transformations]
 substitute = [
     {{match = "import urllib3", replace = "from my_app._vendor import urllib3"}},
@@ -94,3 +96,9 @@ from testpkg._vendor import urllib3
 def get_version():
     return urllib3.__version__
 """)
+
+    vendor_dir = src_dir / "_vendor"
+    vendor_dir.mkdir(parents=True, exist_ok=True)
+
+    vendor_git_ignore = vendor_dir / ".gitignore"
+    vendor_git_ignore.touch()

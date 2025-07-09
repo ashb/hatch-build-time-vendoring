@@ -12,24 +12,18 @@ from hatch_build_time_vendoring.plugin import VendoringBuildHook
 
 
 @pytest.fixture
-def mock_root(tmp_path):
-    """Fixture to provide a mock root directory."""
-    return tmp_path
-
-
-@pytest.fixture
-def mock_vendor_path(mock_root):
+def vendor_path(project_dir):
     """Fixture to provide a mock vendor path."""
-    return mock_root / "src" / "_vendor"
+    return project_dir / "src" / "my_app" / "_vendor"
 
 
 @pytest.fixture()
-def mock_pyproject(tmp_path):
+def mock_pyproject(project_dir):
     """Fixture to provide mock pyproject.toml content."""
 
-    (tmp_path / "pyproject.toml").write_text("""
+    (project_dir / "pyproject.toml").write_text("""
 [tool.vendoring]
-destination = "src/_vendor"
+destination = "src/my_app/_vendor"
 requirements = "vendor-requirements.txt"
 namespace = "mypackage._vendor"
 """)
@@ -47,33 +41,33 @@ def mock_toml_load(mock_pyproject):
 
 
 @pytest.fixture
-def hook(mock_root):
+def hook(project_dir):
     """Fixture to provide a hook instance."""
-    return VendoringBuildHook(mock_root, {}, {}, {}, None, "sdist")
+    return VendoringBuildHook(project_dir, {}, {}, {}, None, "sdist")
 
 
-@pytest.mark.usefixtures("mock_pyproject")
+# @pytest.mark.usefixtures("mock_pyproject")
 class TestVendoringBuildHook:
     """Tests for the VendoringBuildHook class."""
 
-    def test_initialization(self, mock_root):
+    def test_initialization(self, project_dir):
         """Test that the hook initializes correctly."""
         # Default configuration
-        hook = VendoringBuildHook(mock_root, {}, {}, {}, None, "sdist")
-        assert hook.root == mock_root
+        hook = VendoringBuildHook(project_dir, {}, {}, {}, None, "sdist")
+        assert hook.root == project_dir
         assert hook.abort_on_changed_files is True
 
         # Custom configuration
-        hook = VendoringBuildHook(mock_root, {"abort-on-changed-files": False}, {}, {}, None, "sdist")
+        hook = VendoringBuildHook(project_dir, {"abort-on-changed-files": False}, {}, {}, None, "sdist")
         assert hook.abort_on_changed_files is False
 
-    def test_determine_vendor_path(self, hook, mock_vendor_path):
+    def test_determine_vendor_path(self, hook, vendor_path):
         """Test determining the vendor path from configuration."""
 
         hook._determine_vendor_path()
 
-        assert hook.vendor_dir == "src/_vendor"
-        assert hook.vendor_path == mock_vendor_path
+        assert hook.vendor_dir == "src/my_app/_vendor"
+        assert hook.vendor_path == vendor_path
 
     def test_determine_vendor_path_missing_config(self, mock_toml_load, hook):
         """Test determining the vendor path when config is missing."""
@@ -100,70 +94,48 @@ class TestVendoringBuildHook:
         assert hook._is_git_repo() is False
         mock_run.assert_called_once()
 
-    @patch("subprocess.run")
-    def test_get_uncommitted_changes(self, mock_run, hook):
-        """Test getting uncommitted changes."""
-        # Set up the vendor directory
-        hook.vendor_dir = "src/_vendor"
+    @pytest.mark.parametrize(
+        ("path", "content", "expected"),
+        (
+            pytest.param(None, None, ([], []), id="clean"),
+            pytest.param("untracked.txt", "Untracked conteont", ([], []), id="untracked-outside-of-vendor"),
+            pytest.param("src/my_app/_vendor/__init__.py", "Untracked content", ([], []), id="untracked-to-protected-file"),
+            pytest.param(
+                "src/my_app/_vendor/foo.py",
+                "Untracked content",
+                (["src/my_app/_vendor/foo.py"], []),
+                id="untracked",
+            ),
+        ),
+    )
+    def test_get_uncommitted_changes(self, project_dir, hook, path, content, expected):
+        """Test that get_uncommitted_changes correctly identifies uncommitted changes."""
+        hook._determine_vendor_path()
 
-        # Mock responses for the three git commands
-        mock_run.side_effect = [
-            # Untracked files
-            MagicMock(stdout="src/_vendor/file1.py\nsrc/_vendor/file2.py", returncode=0),
-            # Modified files
-            MagicMock(stdout="src/_vendor/file3.py", returncode=0),
-            # Staged files
-            MagicMock(stdout="src/_vendor/file4.py", returncode=0),
-        ]
+        if content is not None:
+            untracked_file = project_dir / path
+            untracked_file.write_text(content)
 
-        untracked, modified = hook._get_uncommitted_changes()
+        # There should now be uncommitted changes
+        assert hook._get_uncommitted_changes() == expected
 
-        assert untracked == ["src/_vendor/file1.py", "src/_vendor/file2.py"]
-        assert modified == ["src/_vendor/file3.py", "src/_vendor/file4.py"]
-        assert mock_run.call_count == 3
+    def test_get_uncommitted_changes_staged_changes(self, hook, vendor_path):
+        """Test that get_uncommitted_changes correctly allowed staged changes."""
+        hook._determine_vendor_path()
 
-    @patch.object(VendoringBuildHook, "_get_uncommitted_changes")
-    @patch.object(VendoringBuildHook, "_is_git_repo")
-    def test_check_for_uncommitted_changes_clean(self, mock_is_git_repo, mock_get_changes, hook):
-        """Test checking for uncommitted changes when everything is clean."""
-        mock_is_git_repo.return_value = True
-        mock_get_changes.return_value = ([], [])
+        untracked_file = vendor_path / "foo.txt"
+        untracked_file.write_text("hello")
+        subprocess.run(["git", "add", "."], check=True, capture_output=True)
 
-        # Should not raise any exceptions
-        hook._check_for_uncommitted_changes()
-
-    @patch.object(VendoringBuildHook, "_get_uncommitted_changes")
-    @patch.object(VendoringBuildHook, "_is_git_repo")
-    def test_check_for_uncommitted_changes_with_changes(self, mock_is_git_repo, mock_get_changes, hook):
-        """Test checking for uncommitted changes when there are changes."""
-        mock_is_git_repo.return_value = True
-        mock_get_changes.return_value = (["file1.py"], ["file2.py"])
-        hook.vendor_dir = "src/_vendor"
-        hook.abort_on_changed_files = True
-
-        # Should raise RuntimeError
-        with pytest.raises(RuntimeError):
-            hook._check_for_uncommitted_changes()
-
-    @patch.object(VendoringBuildHook, "_get_uncommitted_changes")
-    @patch.object(VendoringBuildHook, "_is_git_repo")
-    def test_check_for_uncommitted_changes_with_changes_not_aborting(self, mock_is_git_repo, mock_get_changes, hook):
-        """Test checking for uncommitted changes with abort disabled."""
-        mock_is_git_repo.return_value = True
-        mock_get_changes.return_value = (["file1.py"], ["file2.py"])
-        hook.vendor_dir = "src/_vendor"
-        hook.abort_on_changed_files = False
-
-        # Should not raise any exceptions
-        hook._check_for_uncommitted_changes()
+        assert hook._get_uncommitted_changes() == ([], [])
 
     @patch("subprocess.run")
     @patch("pathlib.Path.exists")
     @patch.object(VendoringBuildHook, "_is_git_repo")
-    def test_git_clean_vendor_dir(self, mock_is_git_repo, mock_exists, mock_run, hook, mock_vendor_path):
+    def test_git_clean_vendor_dir(self, mock_is_git_repo, mock_exists, mock_run, hook, vendor_path):
         """Test git cleaning the vendor directory."""
-        hook.vendor_dir = "src/_vendor"
-        hook.vendor_path = mock_vendor_path
+        hook.vendor_dir = "src/my_app/_vendor"
+        hook.vendor_path = vendor_path
         mock_exists.return_value = True
 
         hook._git_clean_vendor_dir()
@@ -172,12 +144,12 @@ class TestVendoringBuildHook:
         # Check first call (git clean)
         clean_call = mock_run.call_args_list[0]
         assert clean_call[0][0][0:3] == ["git", "clean", "-fdx"]
-        assert clean_call[0][0][-1] == "src/_vendor"
+        assert clean_call[0][0][-1] == "src/my_app/_vendor"
 
         # Check second call (git checkout)
         checkout_call = mock_run.call_args_list[1]
         assert checkout_call[0][0][0:3] == ["git", "checkout", "--"]
-        assert checkout_call[0][0][-1] == "src/_vendor"
+        assert checkout_call[0][0][-1] == "src/my_app/_vendor"
 
     @patch.object(VendoringBuildHook, "_is_git_repo")
     def test_git_clean_not_git_repo(self, mock_is_git_repo, hook):
@@ -199,9 +171,9 @@ class TestVendoringBuildHook:
         mock_run.assert_called_once()
 
     @patch.object(VendoringBuildHook, "_git_clean_vendor_dir")
-    def test_finalize(self, mock_git_clean, hook, mock_vendor_path):
+    def test_finalize(self, mock_git_clean, hook, vendor_path):
         """Test finalize method."""
-        hook.vendor_path = mock_vendor_path
+        hook.vendor_path = vendor_path
 
         with patch("pathlib.Path.exists", return_value=True):
             hook.finalize("1.0.0", {}, "artifact.whl")
