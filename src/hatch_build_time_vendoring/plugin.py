@@ -34,7 +34,8 @@ class VendoringBuildHook(BuildHookInterface):
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         """Initialize the build hook by running vendoring."""
 
-        if self.target_name not in ("sdist", "wheel"):
+        if self.target_name == "wheel" and version == "editable":
+            # ofek-approved  -- https://github.com/pypa/hatch/issues/1626
             return
 
         # Determine the vendor directory path from vendoring configuration
