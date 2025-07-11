@@ -33,6 +33,10 @@ class VendoringBuildHook(BuildHookInterface):
 
     def initialize(self, version: str, build_data: dict[str, Any]) -> None:
         """Initialize the build hook by running vendoring."""
+
+        if self.target_name not in ("sdist", "wheel"):
+            return
+
         # Determine the vendor directory path from vendoring configuration
         self._determine_vendor_path()
 
